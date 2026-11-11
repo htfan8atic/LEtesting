@@ -8,12 +8,26 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 360
     defaults:
       run:
         shell: bash
     steps:
+      - name: Network preflight (DNS and HTTPS)
+        run: |
+          set -euo pipefail
+          echo "Runner: $(lsb_release -ds)"
+          for host in github.com archive.ubuntu.com security.ubuntu.com; do
+            if ! timeout 15 getent ahostsv4 "$host"; then
+              echo "::error::Runner DNS cannot resolve $host. Do not retry apt; use another runner/network."
+              exit 1
+            fi
+          done
+          for url in https://github.com/ https://archive.ubuntu.com/ubuntu/dists/jammy/InRelease; do
+            curl --fail --location --silent --show-error --connect-timeout 15 --max-time 30 --output /dev/null "$url" ||
+              { echo "::error::Runner cannot download $url"; exit 1; }
+          done
       - name: Prepare build disk
         run: |
           set -euxo pipefail
