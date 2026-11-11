@@ -25,14 +25,36 @@ jobs:
       - name: Install build dependencies
         run: |
           set -euxo pipefail
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          # First try the default Ubuntu mirror; retry and fall back to archive.ubuntu.com.
+          for attempt in 1 2 3; do
+            if sudo apt-get -o Acquire::Retries=2 update && \
+               sudo DEBIAN_FRONTEND=noninteractive apt-get \
+                 -o Acquire::Retries=2 -o Acquire::http::Timeout=45 \
+                 -o Acquire::https::Timeout=45 install -y \
             bc bison build-essential bzip2 ccache curl flex gawk gcc g++ git \
             gperf gzip libdrm-dev libelf-dev libncurses-dev libssl-dev \
             make patch perl python3 python3-pip rsync tar unzip wget \
             xz-utils zip zstd autopoint gettext libtool pkg-config \
             libxml2-utils xsltproc meson ninja-build
-
+            then
+              exit 0
+            fi
+            echo "Package installation failed (attempt $attempt)"
+            if [ "$attempt" -eq 1 ]; then
+              # Ubuntu 24.04 hosts use deb822 sources, usually ubuntu.sources.
+              if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+                sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g; s|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+                sudo sed -i 's|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+              fi
+              if [ -f /etc/apt/sources.list ]; then
+                sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list
+              fi
+              sudo rm -f /var/lib/apt/lists/* || true
+            fi
+            sleep 15
+          done
+          echo 'Package installation failed after three attempts (check runner DNS).' >&2
+          exit 1
       - name: Checkout reviewed PR 106 revision
         run: |
           set -euxo pipefail
